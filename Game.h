@@ -59,6 +59,7 @@ private:
 	void GenerateLights();
 	void DrawPointLights();
 	void DrawUI();
+	void UpdateImGui(float deltaTime, Input& input);
 
 	// Initialization helper method
 	void LoadAssetsAndCreateEntities();

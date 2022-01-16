@@ -17,13 +17,18 @@ public:
 		return *instance;
 	}
 
+	void SetGuiKeyboardCapture(bool capture) { guiWantsKeyboard = capture; }
+	void SetGuiMouseCapture(bool capture) { guiWantsMouse = capture; }
+
 	// Remove these functions (C++ 11 version)
 	Input(Input const&) = delete;
 	void operator=(Input const&) = delete;
 
 private:
 	static Input* instance;
-	Input() {};
+	bool guiWantsKeyboard;
+	bool guiWantsMouse;
+	Input() { guiWantsKeyboard = false; guiWantsMouse = false; };
 #pragma endregion
 
 public:
