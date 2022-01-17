@@ -105,6 +105,7 @@ void Game::Init()
 
 	// Initialize ImGui
 	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
 	ImGui::StyleColorsDark(); // pick a style
 	// Set up platform/render backends
 	ImGui_ImplWin32_Init(hWnd);
@@ -457,7 +458,7 @@ void Game::Update(float deltaTime, float totalTime)
 	Input& input = Input::GetInstance();
 
 	// Update the debug gui
-	UpdateImGui(deltaTime, input);
+	UpdateImGui(deltaTime);
 
 	// Update the camera
 	camera->Update(deltaTime);
@@ -615,12 +616,13 @@ void Game::DrawUI()
 }
 
 
-void Game::UpdateImGui(float deltaTime, Input& input)
+void Game::UpdateImGui(float deltaTime)
 {
+	Input& input = Input::GetInstance();
+
 	// Reset input manager's gui state so we don't taint our own input
-	// Uncomment later:
-	// input.SetGuiKeyboardCapture(false);
-	// input.SetGuiMouseCapture(false);
+	input.SetGuiKeyboardCapture(false);
+	input.SetGuiMouseCapture(false);
 
 	// Set io info
 	ImGuiIO& io = ImGui::GetIO();
@@ -644,10 +646,138 @@ void Game::UpdateImGui(float deltaTime, Input& input)
 	ImGui::NewFrame();
 
 	// Determine newe input capture
-	// Uncomment later:
-	// input.SetGuiKeybardCapture(io.WantCaptureKeyboard);
-	// input.SetGuiMouseCapture(io.WantCaptureMouse);
+	input.SetGuiKeyboardCapture(io.WantCaptureKeyboard);
+	input.SetGuiMouseCapture(io.WantCaptureMouse);
 
-	// Show the demo window
-	ImGui::ShowDemoWindow();
+	// Show the demo window OR project debug gui
+	//ImGui::ShowDemoWindow();
+	CreateGui();
+}
+
+void Game::CreateGui()
+{
+	ImGui::Begin("Debug");
+	if (ImGui::CollapsingHeader("Program Stats"))
+	{
+		UIProgram();
+	}
+	if (ImGui::CollapsingHeader("Lights"))
+	{
+		ImGui::SliderInt("Num Lights", &lightCount, 0, MAX_LIGHTS);
+		//if using the slider to increase # of lights, make up the difference and add them to the vector, 
+		while (lightCount >= lights.size())
+		{
+			Light light = {};
+			lights.push_back(light);
+		}
+		for (int i = 0; i < lightCount; i++)
+		{
+			UILight(lights[i], i);
+		}
+	}
+	if (ImGui::CollapsingHeader("Entities"))
+	{
+		for (int i = 0; i < entities.size(); i++)
+		{
+			UIEntity(*entities[i], i);
+		}
+	}
+	ImGui::End();
+}
+
+void Game::UIProgram()
+{
+	ImGuiIO& io = ImGui::GetIO();
+	ImGui::Text("FPS: %.2f \nWidth: %d | Height: %d", io.Framerate, width, height);
+}
+
+void Game::UILight(Light& light, int index)
+{
+	std::string indexStr = std::to_string(index);
+	std::string nodeName = "Light " + indexStr;
+
+	if (ImGui::TreeNode(nodeName.c_str()))
+	{
+		// Type
+		std::string radioDirID = "Directional##" + indexStr;
+		std::string radioPointID = "Point##" + indexStr;
+		std::string radioSpotID = "Spot##" + indexStr;
+
+		if (ImGui::RadioButton(radioDirID.c_str(), light.Type == LIGHT_TYPE_DIRECTIONAL))
+		{
+			light.Type = LIGHT_TYPE_DIRECTIONAL;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton(radioPointID.c_str(), light.Type == LIGHT_TYPE_POINT))
+		{
+			light.Type = LIGHT_TYPE_POINT;
+		}
+		ImGui::SameLine();
+		if (ImGui::RadioButton(radioSpotID.c_str(), light.Type == LIGHT_TYPE_SPOT))
+		{
+			light.Type = LIGHT_TYPE_SPOT;
+		}
+
+		if (light.Type == LIGHT_TYPE_POINT || light.Type == LIGHT_TYPE_SPOT)
+		{
+			// Position	
+			std::string posID = "Position##" + indexStr;
+			ImGui::Text("Position: ");
+			ImGui::DragFloat3(posID.c_str(), &light.Position.x, 0.10f);
+
+			// Range
+			std::string rangeID = "Range##" + indexStr;
+			ImGui::Text("Range: ");
+			ImGui::SliderFloat(rangeID.c_str(), &light.Range, 0.10f, 100.00f);
+		}
+
+		if (light.Type == LIGHT_TYPE_SPOT)
+		{
+			std::string spotFalloffID = "Spot Falloff##" + indexStr;
+			ImGui::Text("Spot Falloff: ");
+			ImGui::SliderFloat(spotFalloffID.c_str(), &light.SpotFalloff, 0.10f, 128.00f);
+		}
+
+		// Color
+		ImGui::Text("Color: ");
+		std::string colorID = "Color##" + indexStr;
+		ImGui::ColorEdit3(colorID.c_str(), &light.Color.x);
+
+		// Intensity
+		std::string intensityID = "Intensity##" + indexStr;
+		ImGui::Text("Intensity: ");
+		ImGui::SliderFloat(intensityID.c_str(), &light.Intensity, 0.10f, 10.00f);
+		ImGui::TreePop();
+	}
+}
+
+void Game::UIEntity(GameEntity& entity, int index)
+{
+	UITransform(*entity.GetTransform(), index);
+
+}
+
+void Game::UITransform(Transform& transform, int parentIndex)
+{
+	std::string uid = std::to_string(parentIndex);
+
+	std::string transformPosID = "TransformPos##" + uid;
+	std::string transformRotID = "TransformRot##" + uid;
+	std::string transformScaleID = "TransformScale##" + uid;
+	ImGui::Text(uid.c_str());
+	XMFLOAT3 tPos = transform.GetPosition();
+	if (ImGui::DragFloat3(transformPosID.c_str(), &tPos.x))
+	{
+		transform.SetPosition(tPos.x, tPos.y, tPos.z);
+	}
+	XMFLOAT3 tRot = transform.GetPitchYawRoll();
+	if (ImGui::DragFloat3(transformRotID.c_str(), &tRot.x))
+	{
+		transform.SetPosition(tRot.x, tRot.y, tRot.z);
+	}
+	XMFLOAT3 tScale = transform.GetScale();
+	if (ImGui::DragFloat3(transformScaleID.c_str(), &tScale.x))
+	{
+		transform.SetPosition(tScale.x, tScale.y, tScale.z);
+	}
 }

@@ -59,7 +59,14 @@ private:
 	void GenerateLights();
 	void DrawPointLights();
 	void DrawUI();
-	void UpdateImGui(float deltaTime, Input& input);
+	void UpdateImGui(float deltaTime);
+	void CreateGui();
+	void UIProgram();
+	void UILight(Light& light, int index);
+	void UIEntity(GameEntity& entity, int index);
+	void UITransform(Transform& transform, int parentIndex);
+
+
 
 	// Initialization helper method
 	void LoadAssetsAndCreateEntities();
