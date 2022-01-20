@@ -544,7 +544,6 @@ void Game::DrawPointLights()
 	lightVS->SetMatrix4x4("view", camera->GetView());
 	lightVS->SetMatrix4x4("projection", camera->GetProjection());
 
-	if (!drawDebugPointLights) return;
 	for (int i = 0; i < lightCount; i++)
 	{
 		Light light = lights[i];
@@ -571,21 +570,23 @@ void Game::DrawPointLights()
 		lightVS->SetMatrix4x4("world", world);
 		lightVS->SetMatrix4x4("worldInverseTranspose", worldInvTrans);
 
-		// Set up the pixel shader data
-		XMFLOAT3 finalColor = light.Color;
-		finalColor.x *= light.Intensity;
-		finalColor.y *= light.Intensity;
-		finalColor.z *= light.Intensity;
-		lightPS->SetFloat3("Color", finalColor);
-
 		// Copy data
 		lightVS->CopyAllBufferData();
-		lightPS->CopyAllBufferData();
 
-		// Draw
-		lightMesh->SetBuffersAndDraw(context);
+		if (drawDebugPointLights)
+		{
+			// Set up the pixel shader data
+			XMFLOAT3 finalColor = light.Color;
+			finalColor.x *= light.Intensity;
+			finalColor.y *= light.Intensity;
+			finalColor.z *= light.Intensity;
+			lightPS->SetFloat3("Color", finalColor);
+
+			// Copy data & draw
+			lightPS->CopyAllBufferData();
+			lightMesh->SetBuffersAndDraw(context);
+		}
 	}
-
 }
 
 
@@ -768,6 +769,7 @@ void Game::UILight(Light& light, int index)
 void Game::UIEntity(GameEntity& entity, int index)
 {
 	UITransform(*entity.GetTransform(), index);
+	UIMaterial();
 }
 
 void Game::UITransform(Transform& transform, int parentIndex)
@@ -794,3 +796,5 @@ void Game::UITransform(Transform& transform, int parentIndex)
 		transform.SetPosition(tScale.x, tScale.y, tScale.z);
 	}
 }
+
+void Game::UIMaterial() {}

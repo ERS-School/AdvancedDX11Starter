@@ -67,6 +67,8 @@ private:
 	void UILight(Light& light, int index);
 	void UIEntity(GameEntity& entity, int index);
 	void UITransform(Transform& transform, int parentIndex);
+	void UIMaterial();
+
 
 
 
