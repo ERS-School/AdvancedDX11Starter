@@ -38,6 +38,7 @@ private:
 	// Lights
 	std::vector<Light> lights;
 	int lightCount;
+	bool drawDebugPointLights;
 
 	// These will be loaded along with other assets and
 	// saved to these variables for ease of access
@@ -62,6 +63,7 @@ private:
 	void UpdateImGui(float deltaTime);
 	void CreateGui();
 	void UIProgram();
+	void UICamera();
 	void UILight(Light& light, int index);
 	void UIEntity(GameEntity& entity, int index);
 	void UITransform(Transform& transform, int parentIndex);

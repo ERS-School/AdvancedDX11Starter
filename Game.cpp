@@ -84,6 +84,9 @@ Game::~Game()
 // --------------------------------------------------------
 void Game::Init()
 {
+	drawDebugPointLights = false;
+
+
 	// Asset loading and entity creation
 	LoadAssetsAndCreateEntities();
 	
@@ -541,6 +544,7 @@ void Game::DrawPointLights()
 	lightVS->SetMatrix4x4("view", camera->GetView());
 	lightVS->SetMatrix4x4("projection", camera->GetProjection());
 
+	if (!drawDebugPointLights) return;
 	for (int i = 0; i < lightCount; i++)
 	{
 		Light light = lights[i];
@@ -661,8 +665,13 @@ void Game::CreateGui()
 	{
 		UIProgram();
 	}
+	if (ImGui::CollapsingHeader("Camera"))
+	{
+		UICamera();
+	}
 	if (ImGui::CollapsingHeader("Lights"))
 	{
+		ImGui::Checkbox("Draw Point Lights", &drawDebugPointLights);
 		ImGui::SliderInt("Num Lights", &lightCount, 0, MAX_LIGHTS);
 		//if using the slider to increase # of lights, make up the difference and add them to the vector, 
 		while (lightCount >= lights.size())
@@ -689,6 +698,11 @@ void Game::UIProgram()
 {
 	ImGuiIO& io = ImGui::GetIO();
 	ImGui::Text("FPS: %.2f \nWidth: %d | Height: %d", io.Framerate, width, height);
+}
+
+void Game::UICamera()
+{
+	UITransform(*camera->GetTransform(), -1);
 }
 
 void Game::UILight(Light& light, int index)
@@ -754,7 +768,6 @@ void Game::UILight(Light& light, int index)
 void Game::UIEntity(GameEntity& entity, int index)
 {
 	UITransform(*entity.GetTransform(), index);
-
 }
 
 void Game::UITransform(Transform& transform, int parentIndex)
@@ -766,17 +779,17 @@ void Game::UITransform(Transform& transform, int parentIndex)
 	std::string transformScaleID = "TransformScale##" + uid;
 	ImGui::Text(uid.c_str());
 	XMFLOAT3 tPos = transform.GetPosition();
-	if (ImGui::DragFloat3(transformPosID.c_str(), &tPos.x))
+	if (ImGui::InputFloat3(transformPosID.c_str(), &tPos.x))
 	{
 		transform.SetPosition(tPos.x, tPos.y, tPos.z);
 	}
 	XMFLOAT3 tRot = transform.GetPitchYawRoll();
-	if (ImGui::DragFloat3(transformRotID.c_str(), &tRot.x))
+	if (ImGui::InputFloat3(transformRotID.c_str(), &tRot.x))
 	{
 		transform.SetPosition(tRot.x, tRot.y, tRot.z);
 	}
 	XMFLOAT3 tScale = transform.GetScale();
-	if (ImGui::DragFloat3(transformScaleID.c_str(), &tScale.x))
+	if (ImGui::InputFloat3(transformScaleID.c_str(), &tScale.x))
 	{
 		transform.SetPosition(tScale.x, tScale.y, tScale.z);
 	}
