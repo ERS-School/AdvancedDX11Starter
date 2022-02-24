@@ -38,7 +38,7 @@ VertexToPixel main(VertexShaderInput input)
 	output.screenPosition = mul(wvp, float4(input.localPosition, 1.0f));
 
 	// Make sure the lighting vectors are in world space
-	output.normal = normalize(mul((float3x3) worldInverseTranspose, input.normal));
+	output.normal = normalize(mul((float3x3) world, input.normal));
 	output.tangent = normalize(mul((float3x3) worldInverseTranspose, input.tangent));
 
 	// Calc vertex world pos
