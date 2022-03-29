@@ -36,16 +36,30 @@ public:
 		std::shared_ptr<SimplePixelShader> skyPS,
 		Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions,
 		Microsoft::WRL::ComPtr<ID3D11Device> device,
-		Microsoft::WRL::ComPtr<ID3D11DeviceContext> context
+		Microsoft::WRL::ComPtr<ID3D11DeviceContext> context,
+		std::shared_ptr<SimpleVertexShader> _fullscreenVS,
+		std::shared_ptr<SimplePixelShader> _iblIrradMapPS,
+		std::shared_ptr<SimplePixelShader> _iblSpecConvPS,
+		std::shared_ptr<SimplePixelShader> _iblBRDFLookUpPS
 	);
 
 	~Sky();
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetIBLIrradianceMap();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetIBLConvolvedSpecularMap();
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> GetIBLBRDFLookUpTexture();
+	int GetNumIBLMipLevels();
+
 
 	void Draw(std::shared_ptr<Camera> camera);
 
 private:
 
 	void InitRenderStates();
+	void IBLCreateIrradianceMap(std::shared_ptr<SimpleVertexShader> _fullscreenVS, std::shared_ptr<SimplePixelShader> _iblIrradMapPS);
+	void IBLCreateConvolvedSpecularMap(std::shared_ptr<SimpleVertexShader> _fullscreenVS, std::shared_ptr<SimplePixelShader> _iblSpecConvPS);
+	void IBLCreateBRDFLookUpTexture(std::shared_ptr<SimpleVertexShader> _fullscreenVS, std::shared_ptr<SimplePixelShader> _iblBRDFLookUpPS);
+
 
 	// Helper for creating a cubemap from 6 individual textures
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> CreateCubemap(
@@ -69,5 +83,14 @@ private:
 	Microsoft::WRL::ComPtr<ID3D11SamplerState> samplerOptions;
 	Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
 	Microsoft::WRL::ComPtr<ID3D11Device> device;
+
+	//IBL
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> iblIrradianceCubeMap_;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> iblConvolvedSpecularCubeMap_;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> iblBRDFLookUpTexture_;
+	int mipLevels_;
+	const int specIBLMipLevelsToSkip = 3; // Number of lower mips (1x1, 2x2, etc.) to exclude from the maps
+	const int IBLCubeMapFaceSize_ = 256;
+	const int IBLLookUpTextureSize_ = 256;
 };
 

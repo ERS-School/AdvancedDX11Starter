@@ -126,6 +126,10 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<SimplePixelShader> pixelShader		= LoadShader(SimplePixelShader, L"PixelShader.cso");
 	std::shared_ptr<SimplePixelShader> pixelShaderPBR	= LoadShader(SimplePixelShader, L"PixelShaderPBR.cso");
 	std::shared_ptr<SimplePixelShader> solidColorPS		= LoadShader(SimplePixelShader, L"SolidColorPS.cso");
+	std::shared_ptr<SimpleVertexShader> fullscreenVS		= LoadShader(SimpleVertexShader, L"FullscreenVS.cso");
+	std::shared_ptr<SimplePixelShader> iblIrradMapPS		= LoadShader(SimplePixelShader, L"IBLIrradianceMapPS.cso");
+	std::shared_ptr<SimplePixelShader> iblSpecConvPS		= LoadShader(SimplePixelShader, L"IBLSpecularConvolutionPS.cso");
+	std::shared_ptr<SimplePixelShader> iblBRDFlookupPS		= LoadShader(SimplePixelShader, L"IBLBRDFLookUpTablePS.cso");
 	
 	std::shared_ptr<SimpleVertexShader> skyVS = LoadShader(SimpleVertexShader, L"SkyVS.cso");
 	std::shared_ptr<SimplePixelShader> skyPS  = LoadShader(SimplePixelShader, L"SkyPS.cso");
@@ -148,6 +152,16 @@ void Game::LoadAssetsAndCreateEntities()
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> bronzeA,  bronzeN,  bronzeR,  bronzeM;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> roughA,  roughN,  roughR,  roughM;
 	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> woodA,  woodN,  woodR,  woodM;
+
+
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> white, gray75, gray50, gray25, black, flatNormals;
+	LoadTexture(L"../../Assets/Textures/SolidColors/white.png", white);
+	LoadTexture(L"../../Assets/Textures/SolidColors/graySeventyFivePercent.png", gray75);
+	LoadTexture(L"../../Assets/Textures/SolidColors/grayFiftyPercent.png", gray50);
+	LoadTexture(L"../../Assets/Textures/SolidColors/grayTwentyFivePercent.png", gray25);
+	LoadTexture(L"../../Assets/Textures/SolidColors/black.png", black);
+	LoadTexture(L"../../Assets/Textures/SolidColors/flatNormals.png", flatNormals);
+
 
 	// Load the textures using our succinct LoadTexture() macro
 	LoadTexture(L"../../Assets/Textures/cobblestone_albedo.png", cobbleA);
@@ -194,6 +208,15 @@ void Game::LoadAssetsAndCreateEntities()
 	sampDesc.MaxAnisotropy = 16;
 	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 	device->CreateSamplerState(&sampDesc, samplerOptions.GetAddressOf());
+	// Describe and create our sampler state
+	D3D11_SAMPLER_DESC sampDesc2 = {};
+	sampDesc2.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc2.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc2.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+	sampDesc2.Filter = D3D11_FILTER_ANISOTROPIC;
+	sampDesc2.MaxAnisotropy = 16;
+	sampDesc2.MaxLOD = D3D11_FLOAT32_MAX;
+	device->CreateSamplerState(&sampDesc2, clampSamplerOptions.GetAddressOf());
 
 
 	// Create the sky using 6 images
@@ -209,7 +232,11 @@ void Game::LoadAssetsAndCreateEntities()
 		skyPS,
 		samplerOptions,
 		device,
-		context);
+		context,
+		fullscreenVS,
+		iblIrradMapPS,
+		iblSpecConvPS,
+		iblBRDFlookupPS);
 
 	// Create non-PBR materials
 	std::shared_ptr<Material> cobbleMat2x = std::make_shared<Material>(pixelShader, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
@@ -264,60 +291,106 @@ void Game::LoadAssetsAndCreateEntities()
 	// Create PBR materials
 	std::shared_ptr<Material> cobbleMat2xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	cobbleMat2xPBR->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat2xPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	cobbleMat2xPBR->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat2xPBR->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat2xPBR->AddTextureSRV("RoughnessMap", cobbleR);
 	cobbleMat2xPBR->AddTextureSRV("MetalMap", cobbleM);
+	cobbleMat2xPBR->AddTextureSRV("MetalMap", cobbleM);
+	cobbleMat2xPBR->AddTextureSRV("MetalMap", cobbleM);
+	cobbleMat2xPBR->AddTextureSRV("MetalMap", cobbleM);
+	cobbleMat2xPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	cobbleMat2xPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	cobbleMat2xPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> cobbleMat4xPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(4, 4));
 	cobbleMat4xPBR->AddSampler("BasicSampler", samplerOptions);
+	cobbleMat4xPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	cobbleMat4xPBR->AddTextureSRV("Albedo", cobbleA);
 	cobbleMat4xPBR->AddTextureSRV("NormalMap", cobbleN);
 	cobbleMat4xPBR->AddTextureSRV("RoughnessMap", cobbleR);
 	cobbleMat4xPBR->AddTextureSRV("MetalMap", cobbleM);
+	cobbleMat4xPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	cobbleMat4xPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	cobbleMat4xPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> floorMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	floorMatPBR->AddSampler("BasicSampler", samplerOptions);
+	floorMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	floorMatPBR->AddTextureSRV("Albedo", floorA);
 	floorMatPBR->AddTextureSRV("NormalMap", floorN);
 	floorMatPBR->AddTextureSRV("RoughnessMap", floorR);
 	floorMatPBR->AddTextureSRV("MetalMap", floorM);
+	floorMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	floorMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	floorMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> paintMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	paintMatPBR->AddSampler("BasicSampler", samplerOptions);
+	paintMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	paintMatPBR->AddTextureSRV("Albedo", paintA);
 	paintMatPBR->AddTextureSRV("NormalMap", paintN);
 	paintMatPBR->AddTextureSRV("RoughnessMap", paintR);
 	paintMatPBR->AddTextureSRV("MetalMap", paintM);
+	paintMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	paintMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	paintMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> scratchedMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	scratchedMatPBR->AddSampler("BasicSampler", samplerOptions);
+	scratchedMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	scratchedMatPBR->AddTextureSRV("Albedo", scratchedA);
 	scratchedMatPBR->AddTextureSRV("NormalMap", scratchedN);
 	scratchedMatPBR->AddTextureSRV("RoughnessMap", scratchedR);
 	scratchedMatPBR->AddTextureSRV("MetalMap", scratchedM);
+	scratchedMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	scratchedMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	scratchedMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> bronzeMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	bronzeMatPBR->AddSampler("BasicSampler", samplerOptions);
+	bronzeMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	bronzeMatPBR->AddTextureSRV("Albedo", bronzeA);
 	bronzeMatPBR->AddTextureSRV("NormalMap", bronzeN);
 	bronzeMatPBR->AddTextureSRV("RoughnessMap", bronzeR);
 	bronzeMatPBR->AddTextureSRV("MetalMap", bronzeM);
+	bronzeMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	bronzeMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	bronzeMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> roughMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	roughMatPBR->AddSampler("BasicSampler", samplerOptions);
+	roughMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	roughMatPBR->AddTextureSRV("Albedo", roughA);
 	roughMatPBR->AddTextureSRV("NormalMap", roughN);
 	roughMatPBR->AddTextureSRV("RoughnessMap", roughR);
 	roughMatPBR->AddTextureSRV("MetalMap", roughM);
+	roughMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	roughMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	roughMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 	std::shared_ptr<Material> woodMatPBR = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
 	woodMatPBR->AddSampler("BasicSampler", samplerOptions);
+	woodMatPBR->AddSampler("ClampSampler", clampSamplerOptions);
 	woodMatPBR->AddTextureSRV("Albedo", woodA);
 	woodMatPBR->AddTextureSRV("NormalMap", woodN);
 	woodMatPBR->AddTextureSRV("RoughnessMap", woodR);
 	woodMatPBR->AddTextureSRV("MetalMap", woodM);
+	woodMatPBR->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	woodMatPBR->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	woodMatPBR->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
+
+	std::shared_ptr<Material> iblTestMat_shinyMetal = std::make_shared<Material>(pixelShaderPBR, vertexShader, XMFLOAT3(1, 1, 1), XMFLOAT2(2, 2));
+	iblTestMat_shinyMetal->AddSampler("BasicSampler", samplerOptions);
+	iblTestMat_shinyMetal->AddSampler("ClampSampler", clampSamplerOptions);
+	iblTestMat_shinyMetal->AddTextureSRV("Albedo", white);
+	iblTestMat_shinyMetal->AddTextureSRV("NormalMap", flatNormals);
+	iblTestMat_shinyMetal->AddTextureSRV("RoughnessMap", black);
+	iblTestMat_shinyMetal->AddTextureSRV("MetalMap", black);
+	iblTestMat_shinyMetal->AddTextureSRV("BrdfLookUpMap", sky->GetIBLBRDFLookUpTexture());
+	iblTestMat_shinyMetal->AddTextureSRV("IrradianceIBLMap", sky->GetIBLIrradianceMap());
+	iblTestMat_shinyMetal->AddTextureSRV("SpecularIBLMap", sky->GetIBLConvolvedSpecularMap());
 
 
 	// === Create the PBR entities =====================================
@@ -342,6 +415,9 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<GameEntity> woodSpherePBR = std::make_shared<GameEntity>(sphereMesh, woodMatPBR);
 	woodSpherePBR->GetTransform()->SetPosition(6, 2, 0);
 
+	std::shared_ptr<GameEntity> shinyMetalSpherePBR = std::make_shared<GameEntity>(sphereMesh, iblTestMat_shinyMetal);
+	shinyMetalSpherePBR->GetTransform()->SetPosition(6, 4, 0);
+
 	entities.push_back(cobSpherePBR);
 	entities.push_back(floorSpherePBR);
 	entities.push_back(paintSpherePBR);
@@ -349,6 +425,7 @@ void Game::LoadAssetsAndCreateEntities()
 	entities.push_back(bronzeSpherePBR);
 	entities.push_back(roughSpherePBR);
 	entities.push_back(woodSpherePBR);
+	entities.push_back(shinyMetalSpherePBR);
 
 	// Create the non-PBR entities ==============================
 	std::shared_ptr<GameEntity> cobSphere = std::make_shared<GameEntity>(sphereMesh, cobbleMat2x);
@@ -491,21 +568,23 @@ void Game::Draw(float deltaTime, float totalTime)
 
 
 	// Draw all of the entities
-	for (auto& ge : entities)
+	for (auto& e : entities)
 	{
 		// Set the "per frame" data
 		// Note that this should literally be set once PER FRAME, before
 		// the draw loop, but we're currently setting it per entity since 
 		// we are just using whichever shader the current entity has.  
 		// Inefficient!!!
-		std::shared_ptr<SimplePixelShader> ps = ge->GetMaterial()->GetPixelShader();
+		std::shared_ptr<SimplePixelShader> ps = e->GetMaterial()->GetPixelShader();
 		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * lightCount);
 		ps->SetInt("lightCount", lightCount);
 		ps->SetFloat3("cameraPosition", camera->GetTransform()->GetPosition());
+		ps->SetInt("SpecIBLTotalMipLevels", sky->GetNumIBLMipLevels());
+
 		ps->CopyBufferData("perFrame");
 
 		// Draw the entity
-		ge->Draw(context, camera);
+		e->Draw(context, camera);
 	}
 
 	// Draw the light sources
@@ -691,6 +770,10 @@ void Game::CreateGui()
 		{
 			UIEntity(*entities[i], i);
 		}
+	}
+	if (ImGui::CollapsingHeader("BRDF Look-Up Texture"))
+	{
+		ImGui::Image(sky->GetIBLBRDFLookUpTexture().Get(), ImVec2(128, 128));
 	}
 	ImGui::End();
 }
