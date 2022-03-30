@@ -9,6 +9,7 @@
 #include "SpriteBatch.h"
 #include "Lights.h"
 #include "Sky.h"
+#include "Renderer.h"
 
 #include <DirectXMath.h>
 #include <wrl/client.h> // Used for ComPtr - a smart pointer for COM objects
@@ -31,6 +32,8 @@ public:
 
 private:
 
+	std::shared_ptr<Renderer> renderer;
+
 	// Our scene
 	std::vector<std::shared_ptr<GameEntity>> entities;
 	std::shared_ptr<Camera> camera;
@@ -38,7 +41,6 @@ private:
 	// Lights
 	std::vector<Light> lights;
 	int lightCount;
-	bool drawDebugPointLights;
 
 	// These will be loaded along with other assets and
 	// saved to these variables for ease of access
@@ -59,19 +61,6 @@ private:
 
 	// General helpers for setup and drawing
 	void GenerateLights();
-	void DrawPointLights();
-	void DrawUI();
-	void UpdateImGui(float deltaTime);
-	void CreateGui();
-	void UIProgram();
-	void UICamera();
-	void UILight(Light& light, int index);
-	void UIEntity(GameEntity& entity, int index);
-	void UITransform(Transform& transform, int parentIndex);
-	void UIMaterial();
-
-
-
 
 	// Initialization helper method
 	void LoadAssetsAndCreateEntities();
