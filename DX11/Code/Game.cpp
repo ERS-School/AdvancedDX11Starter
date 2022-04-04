@@ -123,8 +123,16 @@ void Game::Init()
 										lightMesh,
 										lightVS,
 										lightPS,
+										lightCount,
 										arial,
-										spriteBatch);
+										spriteBatch,
+		fullscreenVS,
+		ssaoPS,
+		ssaoBlurPS,
+		ssaoCombinePS,
+		randomSRV,
+		samplerOptions,
+		clampSamplerOptions);
 }
 
 
@@ -138,13 +146,17 @@ void Game::LoadAssetsAndCreateEntities()
 	std::shared_ptr<SimplePixelShader> pixelShader		= LoadShader(SimplePixelShader, L"PixelShader.cso");
 	std::shared_ptr<SimplePixelShader> pixelShaderPBR	= LoadShader(SimplePixelShader, L"PixelShaderPBR.cso");
 	std::shared_ptr<SimplePixelShader> solidColorPS		= LoadShader(SimplePixelShader, L"SolidColorPS.cso");
-	std::shared_ptr<SimpleVertexShader> fullscreenVS		= LoadShader(SimpleVertexShader, L"FullscreenVS.cso");
+	fullscreenVS		= LoadShader(SimpleVertexShader, L"FullscreenVS.cso");
 	std::shared_ptr<SimplePixelShader> iblIrradMapPS		= LoadShader(SimplePixelShader, L"IBLIrradianceMapPS.cso");
 	std::shared_ptr<SimplePixelShader> iblSpecConvPS		= LoadShader(SimplePixelShader, L"IBLSpecularConvolutionPS.cso");
 	std::shared_ptr<SimplePixelShader> iblBRDFlookupPS		= LoadShader(SimplePixelShader, L"IBLBRDFLookUpTablePS.cso");
 	
 	std::shared_ptr<SimpleVertexShader> skyVS = LoadShader(SimpleVertexShader, L"SkyVS.cso");
 	std::shared_ptr<SimplePixelShader> skyPS  = LoadShader(SimplePixelShader, L"SkyPS.cso");
+
+	ssaoPS  = LoadShader(SimplePixelShader, L"SsaoPS.cso");
+	ssaoBlurPS  = LoadShader(SimplePixelShader, L"SsaoBlurPS.cso");
+	ssaoCombinePS  = LoadShader(SimplePixelShader, L"SsaoCombinePS.cso");
 
 	// Set up the sprite batch and load the sprite font
 	spriteBatch = std::make_shared<SpriteBatch>(context.Get());
@@ -173,6 +185,7 @@ void Game::LoadAssetsAndCreateEntities()
 	LoadTexture(L"../../Assets/Textures/SolidColors/grayTwentyFivePercent.png", gray25);
 	LoadTexture(L"../../Assets/Textures/SolidColors/black.png", black);
 	LoadTexture(L"../../Assets/Textures/SolidColors/flatNormals.png", flatNormals);
+	LoadTexture(L"../../Assets/Textures/random.png", randomSRV);
 
 
 	// Load the textures using our succinct LoadTexture() macro

@@ -40,6 +40,13 @@ struct VertexToPixel
 	float3 worldPos			: POSITION; // The world position of this PIXEL
 };
 
+struct PS_Output
+{
+	float4 colorNoAmbient : SV_TARGET0;
+	float4 ambientColor : SV_TARGET1;
+	float4 normals : SV_TARGET2;
+	float depths : SV_TARGET3;
+};
 
 // Texture-related variables
 Texture2D Albedo			: register(t0);
@@ -49,49 +56,55 @@ SamplerState BasicSampler		: register(s0);
 
 
 // Entry point for this pixel shader
-float4 main(VertexToPixel input) : SV_TARGET
+PS_Output main(VertexToPixel input) : SV_TARGET
 {
 	// Always re-normalize interpolated direction vectors
 	input.normal = normalize(input.normal);
 	input.tangent = normalize(input.tangent);
 
-	// Apply the uv adjustments
-	input.uv = input.uv * uvScale + uvOffset;
-
 	// Normal mapping
 	input.normal = NormalMapping(NormalMap, BasicSampler, input.uv, input.normal, input.tangent);
 	
-	// Treating roughness as a pseduo-spec map here
+	// Treating roughness as a pseduo-spec map here, so applying it as
+	// a modifier to the overall shininess value of the material
 	float roughness = RoughnessMap.Sample(BasicSampler, input.uv).r;
 	float specPower = max(256.0f * (1.0f - roughness), 0.01f); // Ensure we never hit 0
 	
 	// Gamma correct the texture back to linear space and apply the color tint
 	float4 surfaceColor = Albedo.Sample(BasicSampler, input.uv);
-	surfaceColor.rgb = pow(surfaceColor.rgb, 2.2) * colorTint;
+	surfaceColor.rgb = pow(surfaceColor.rgb, 2.2);// * Color.rgb;
 
 	// Total color for this pixel
-	float3 totalColor = float3(0,0,0);
+	float3 totalDirectLight = float3(0, 0, 0);
 
 	// Loop through all lights this frame
-	for(int i = 0; i < lightCount; i++)
+	for (int i = 0; i < lightCount; i++)
 	{
 		// Which kind of light?
 		switch (lights[i].Type)
 		{
-		case LIGHT_TYPE_DIRECTIONAL:
-			totalColor += DirLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
-			break;
+			case LIGHT_TYPE_DIRECTIONAL:
+				totalDirectLight += DirLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
+				break;
 
-		case LIGHT_TYPE_POINT:
-			totalColor += PointLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
-			break;
+			case LIGHT_TYPE_POINT:
+				totalDirectLight += PointLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
+				break;
 
-		case LIGHT_TYPE_SPOT:
-			totalColor += SpotLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
-			break;
+			case LIGHT_TYPE_SPOT:
+				totalDirectLight += SpotLight(lights[i], input.normal, input.worldPos, cameraPosition, specPower, surfaceColor.rgb);
+				break;
 		}
 	}
 
-	// Gamma correction
-	return float4(pow(totalColor, 1.0f / 2.2f), 1);
+	// Handle ambient
+	float3 ambient = surfaceColor.rgb * float3(0.2f, 0.2f, 0.2f);
+
+	// Multiple render target output
+	PS_Output output;
+	output.colorNoAmbient = float4(totalDirectLight, 1); // No gamma correction yet!
+	output.ambientColor = float4(ambient, 1);
+	output.normals = float4(input.normal * 0.5f + 0.5f, 1);
+	output.depths = input.screenPosition.z;
+	return output;
 }

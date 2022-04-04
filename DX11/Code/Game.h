@@ -47,6 +47,12 @@ private:
 	std::shared_ptr<Mesh> lightMesh;
 	std::shared_ptr<SimpleVertexShader> lightVS;
 	std::shared_ptr<SimplePixelShader> lightPS;
+	std::shared_ptr<SimplePixelShader> ssaoPS;
+	std::shared_ptr<SimplePixelShader> ssaoBlurPS;
+	std::shared_ptr<SimplePixelShader> ssaoCombinePS;
+
+	std::shared_ptr<SimpleVertexShader> fullscreenVS;
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> randomSRV;
 
 	// Text & ui
 	std::shared_ptr<DirectX::SpriteFont> arial;

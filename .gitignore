@@ -350,3 +350,5 @@ MigrationBackup/
 .ionide/
 
 DX11 Shortcut.lnk
+
+DX11/Code/imgui.ini

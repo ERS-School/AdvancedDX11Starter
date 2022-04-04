@@ -9,19 +9,26 @@
 
 using namespace DirectX;
 
-Renderer::Renderer(Microsoft::WRL::ComPtr<ID3D11Device> _device, Microsoft::WRL::ComPtr<ID3D11DeviceContext> _context,
-	Microsoft::WRL::ComPtr<IDXGISwapChain> _swapChain,
+Renderer::Renderer(Microsoft::WRL::ComPtr<ID3D11Device> _device, Microsoft::WRL::ComPtr<ID3D11DeviceContext> _context, Microsoft::WRL::ComPtr<IDXGISwapChain> _swapChain,
 	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> _backBufferRTV,
 	Microsoft::WRL::ComPtr<ID3D11DepthStencilView> _depthBufferDSV,
-	unsigned _windowWidth, unsigned _windowHeight,
+	unsigned int _windowWidth, unsigned int _windowHeight,
 	std::shared_ptr<Sky> _sky,
 	std::vector<std::shared_ptr<GameEntity>>& _entities,
 	std::vector<Light>& _lights,
 	std::shared_ptr<Mesh> _lightMesh,
 	std::shared_ptr<SimpleVertexShader> _lightVS,
 	std::shared_ptr<SimplePixelShader> _lightPS,
+	unsigned int _activeLightCount,
 	std::shared_ptr<DirectX::SpriteFont> _arial,
-	std::shared_ptr<DirectX::SpriteBatch> _spriteBatch)
+	std::shared_ptr<DirectX::SpriteBatch> _spriteBatch,
+	std::shared_ptr<SimpleVertexShader> _fullscreenVS,
+	std::shared_ptr<SimplePixelShader> _ssaoPS,
+	std::shared_ptr<SimplePixelShader> _ssaoBlurPS,
+	std::shared_ptr<SimplePixelShader> _ssaoCombinePS,
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> _randomSRV,
+	Microsoft::WRL::ComPtr<ID3D11SamplerState> _basicSamplerOptions,
+	Microsoft::WRL::ComPtr<ID3D11SamplerState> _clampSamplerOptions)
 	:
 	device(_device),
 	context(_context),
@@ -36,10 +43,47 @@ Renderer::Renderer(Microsoft::WRL::ComPtr<ID3D11Device> _device, Microsoft::WRL:
 	lightMesh(_lightMesh),
 	lightVS(_lightVS),
 	lightPS(_lightPS),
+	activeLightCount(_activeLightCount),
 	arial(_arial),
 	spriteBatch(_spriteBatch),
-	drawDebugPointLights(false)
+	drawDebugPointLights(false),
+	fullscreenVS(_fullscreenVS),
+	ssaoPS(_ssaoPS),
+	ssaoBlurPS(_ssaoBlurPS),
+	ssaoCombinePS(_ssaoCombinePS),
+	randomSRV(_randomSRV),
+	basicSamplerOptions(_basicSamplerOptions),
+	clampSamplerOptions(_clampSamplerOptions)
 {
+	// Validate active light count
+	activeLightCount = min(activeLightCount, MAX_LIGHTS);
+
+	//Create MRTs
+	PostResize(windowWidth, windowHeight, backBufferRTV, depthBufferDSV);
+
+	// Set up the ssao offsets (count must match shader!)
+	for (int i = 0; i < ARRAYSIZE(ssaoOffsets); i++)
+	{
+		ssaoOffsets[i] = XMFLOAT4(
+			(float)rand() / RAND_MAX * 2 - 1,	// -1 to 1
+			(float)rand() / RAND_MAX * 2 - 1,	// -1 to 1
+			(float)rand() / RAND_MAX,			// 0 to 1
+			0);
+
+		XMVECTOR v = XMVector3Normalize(XMLoadFloat4(&ssaoOffsets[i]));
+
+		// Scale up over the array
+		float scale = (float)i / ARRAYSIZE(ssaoOffsets);
+		XMVECTOR scaleVector = XMVectorLerp(
+			XMVectorSet(0.1f, 0.1f, 0.1f, 1),
+			XMVectorSet(1, 1, 1, 1),
+			scale * scale);
+
+		XMStoreFloat4(&ssaoOffsets[i], v * scaleVector);
+	}
+	ssaoRadius = 1.0f;
+	ssaoSamples = 64;
+	ssaoOutputOnly = 0;
 }
 
 void Renderer::PreResize()
@@ -48,12 +92,28 @@ void Renderer::PreResize()
 	depthBufferDSV.Reset();
 }
 
-void Renderer::PostResize(unsigned int _windowWidth, unsigned int _windowHeight, Microsoft::WRL::ComPtr<ID3D11RenderTargetView> _backBufferRTV, Microsoft::WRL::ComPtr<ID3D11DepthStencilView> _depthStencilDSV)
+void Renderer::PostResize(
+	unsigned int windowWidth,
+	unsigned int windowHeight,
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView> backBufferRTV,
+	Microsoft::WRL::ComPtr<ID3D11DepthStencilView> depthBufferDSV)
 {
-	windowWidth = _windowWidth;
-	windowHeight = _windowHeight;
-	backBufferRTV = _backBufferRTV;
-	depthBufferDSV = _depthStencilDSV;
+	this->windowWidth = windowWidth;
+	this->windowHeight = windowHeight;
+	this->backBufferRTV = backBufferRTV;
+	this->depthBufferDSV = depthBufferDSV;
+
+	// Release all of the renderer-specific render targets
+	for (auto& rt : renderTargetSRVs) rt.Reset();
+	for (auto& rt : renderTargetRTVs) rt.Reset();
+
+	// Recreate using the new window size
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SCENE_COLORS_NO_AMBIENT], renderTargetSRVs[RenderTargetType::SCENE_COLORS_NO_AMBIENT]);
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SCENE_AMBIENT], renderTargetSRVs[RenderTargetType::SCENE_AMBIENT]);
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SCENE_NORMALS], renderTargetSRVs[RenderTargetType::SCENE_NORMALS]);
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SCENE_DEPTHS], renderTargetSRVs[RenderTargetType::SCENE_DEPTHS], DXGI_FORMAT_R32_FLOAT);
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SSAO_RESULTS], renderTargetSRVs[RenderTargetType::SSAO_RESULTS]);
+	CreateRenderTarget(windowWidth, windowHeight, renderTargetRTVs[RenderTargetType::SSAO_BLUR], renderTargetSRVs[RenderTargetType::SSAO_BLUR]);
 }
 
 void Renderer::Render(std::shared_ptr<Camera> camera)
@@ -65,7 +125,6 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 	const float color[4] = { 0, 0, 0, 1 };
 
 
-	const int lightCount = lights.size();
 	
 	// Clear the render target and depth buffer (erases what's on the screen)
 	//  - Do this ONCE PER FRAME
@@ -76,7 +135,18 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 		D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
 		1.0f,
 		0);
+	// Clear render targets
+	for (auto& rt : renderTargetRTVs) context->ClearRenderTargetView(rt.Get(), color);
+	const float depth[4] = { 1,0,0,0 };
+	context->ClearRenderTargetView(renderTargetRTVs[SCENE_DEPTHS].Get(), depth);
 
+	const int numTargets = 4;
+	ID3D11RenderTargetView* targets[numTargets] = {};
+	targets[0] = renderTargetRTVs[RenderTargetType::SCENE_COLORS_NO_AMBIENT].Get();
+	targets[1] = renderTargetRTVs[RenderTargetType::SCENE_AMBIENT].Get();
+	targets[2] = renderTargetRTVs[RenderTargetType::SCENE_NORMALS].Get();
+	targets[3] = renderTargetRTVs[RenderTargetType::SCENE_DEPTHS].Get();
+	context->OMSetRenderTargets(numTargets, targets, depthBufferDSV.Get());
 
 	// Draw all of the entities
 	for (auto& e : entities)
@@ -87,8 +157,8 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 		// we are just using whichever shader the current entity has.  
 		// Inefficient!!!
 		std::shared_ptr<SimplePixelShader> ps = e->GetMaterial()->GetPixelShader();
-		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * lightCount);
-		ps->SetInt("lightCount", lightCount);
+		ps->SetData("lights", (void*)(&lights[0]), sizeof(Light) * activeLightCount);
+		ps->SetInt("lightCount", activeLightCount);
 		ps->SetFloat3("cameraPosition", camera->GetTransform()->GetPosition());
 		ps->SetInt("SpecIBLTotalMipLevels", sky->GetNumIBLMipLevels());
 
@@ -104,6 +174,81 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 	// Draw the sky
 	sky->Draw(camera);
 
+
+	// ---- SSAO ---- //
+	fullscreenVS->SetShader();
+	// Render the SSAO results
+	{
+		// Set up ssao render pass
+		targets[0] = renderTargetRTVs[RenderTargetType::SSAO_RESULTS].Get();
+		targets[1] = 0;
+		targets[2] = 0;
+		targets[3] = 0;
+		context->OMSetRenderTargets(numTargets, targets, 0);
+
+		ssaoPS->SetShader();
+
+		// Calculate the inverse of the camera matrices
+		XMFLOAT4X4 invView, invProj, view = camera->GetView(), proj = camera->GetProjection();
+		XMStoreFloat4x4(&invView, XMMatrixInverse(0, XMLoadFloat4x4(&view)));
+		XMStoreFloat4x4(&invProj, XMMatrixInverse(0, XMLoadFloat4x4(&proj)));
+		ssaoPS->SetMatrix4x4("invViewMatrix", invView); // ??? not in shader
+		ssaoPS->SetMatrix4x4("invProjMatrix", invProj);
+		ssaoPS->SetMatrix4x4("viewMatrix", view);
+		ssaoPS->SetMatrix4x4("projectionMatrix", proj);
+		ssaoPS->SetData("offsets", ssaoOffsets, sizeof(XMFLOAT4) * ARRAYSIZE(ssaoOffsets));
+		ssaoPS->SetFloat("ssaoRadius", ssaoRadius);
+		ssaoPS->SetInt("ssaoSamples", ssaoSamples);
+		ssaoPS->SetFloat2("randomTextureScreenScale", XMFLOAT2(windowWidth / 4.0f, windowHeight / 4.0f));
+		ssaoPS->SetSamplerState("BasicSampler", basicSamplerOptions); // ??? do we need these?
+		ssaoPS->SetSamplerState("ClampSampler", clampSamplerOptions);
+		ssaoPS->CopyAllBufferData();
+
+		ssaoPS->SetShaderResourceView("Normals", renderTargetSRVs[RenderTargetType::SCENE_NORMALS]);
+		ssaoPS->SetShaderResourceView("Depths", renderTargetSRVs[RenderTargetType::SCENE_DEPTHS]);
+		ssaoPS->SetShaderResourceView("Random", randomSRV);
+
+
+		context->Draw(3, 0);
+	}
+	// SSAO Blur step
+	{
+		// Set up blur (assuming all other targets are null here)
+		targets[0] = renderTargetRTVs[RenderTargetType::SSAO_BLUR].Get();
+		context->OMSetRenderTargets(1, targets, 0);
+
+		ssaoBlurPS->SetShader();
+		ssaoBlurPS->SetShaderResourceView("SSAO", renderTargetSRVs[RenderTargetType::SSAO_RESULTS]);
+		ssaoBlurPS->SetFloat2("pixelSize", XMFLOAT2(1.0f / windowWidth, 1.0f / windowHeight));
+
+		ssaoBlurPS->SetSamplerState("BasicSampler", basicSamplerOptions); // ??? do we need these?
+		ssaoBlurPS->SetSamplerState("ClampSampler", clampSamplerOptions);
+
+		ssaoBlurPS->CopyAllBufferData();
+		context->Draw(3, 0);
+	}
+
+	// Final combine
+	{
+		// Re-enable back buffer (assuming all other targets are null here)
+		targets[0] = backBufferRTV.Get();
+		context->OMSetRenderTargets(1, targets, 0);
+
+		ssaoCombinePS->SetShader();
+		ssaoCombinePS->SetShaderResourceView("SceneColorsNoAmbient", renderTargetSRVs[RenderTargetType::SCENE_COLORS_NO_AMBIENT]);
+		ssaoCombinePS->SetShaderResourceView("Ambient", renderTargetSRVs[RenderTargetType::SCENE_AMBIENT]);
+		ssaoCombinePS->SetShaderResourceView("SSAOBlur", renderTargetSRVs[RenderTargetType::SSAO_BLUR]);
+		ssaoCombinePS->SetInt("ssaoEnabled", ssaoEnabled);
+		ssaoCombinePS->SetInt("ssaoOutputOnly", ssaoOutputOnly);
+		ssaoCombinePS->SetFloat2("pixelSize", XMFLOAT2(1.0f / windowWidth, 1.0f / windowHeight));
+
+		ssaoCombinePS->SetSamplerState("BasicSampler", basicSamplerOptions); // ??? do we need these?
+		ssaoCombinePS->SetSamplerState("ClampSampler", clampSamplerOptions);
+
+		ssaoCombinePS->CopyAllBufferData();
+		context->Draw(3, 0);
+	}
+
 	// Draw some UI
 	DrawUI();
 
@@ -113,17 +258,59 @@ void Renderer::Render(std::shared_ptr<Camera> camera)
 	//  - Do this exactly ONCE PER FRAME (always at the very end of the frame)
 	ImGui::Render();
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData()); // draw ImGui last so it appears on top of everything
-	swapChain->Present(0, 0);
 
-	// Due to the usage of a more sophisticated swap chain,
-	// the render target must be re-bound after every call to Present()
+	// Present and re-bind the RTV
+	swapChain->Present(0, 0);
 	context->OMSetRenderTargets(1, backBufferRTV.GetAddressOf(), depthBufferDSV.Get());
+
+	// Unbind all SRVs at the end of the frame so they're not still bound for input
+	// when we begin the MRTs of the next frame
+	ID3D11ShaderResourceView* nullSRVs[16] = {};
+	context->PSSetShaderResources(0, 16, nullSRVs);
 }
+
+unsigned int Renderer::GetActiveLightCount() { return activeLightCount; }
+void Renderer::SetActiveLightCount(unsigned int count) { activeLightCount = min(count, MAX_LIGHTS); }
+
+
+void Renderer::CreateRenderTarget(
+	unsigned int width,
+	unsigned int height,
+	Microsoft::WRL::ComPtr<ID3D11RenderTargetView>& rtv,
+	Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>& srv,
+	DXGI_FORMAT colorFormat)
+{
+	// Make the texture
+	Microsoft::WRL::ComPtr<ID3D11Texture2D> rtTexture;
+
+	D3D11_TEXTURE2D_DESC texDesc = {};
+	texDesc.Width = width;
+	texDesc.Height = height;
+	texDesc.ArraySize = 1;
+	texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE; // Need both!
+	texDesc.Format = colorFormat;
+	texDesc.MipLevels = 1; // Usually no mip chain needed for render targets
+	texDesc.MiscFlags = 0;
+	texDesc.SampleDesc.Count = 1; // Can't be zero
+	device->CreateTexture2D(&texDesc, 0, rtTexture.GetAddressOf());
+
+	// Make the render target view
+	D3D11_RENDER_TARGET_VIEW_DESC rtvDesc = {};
+	rtvDesc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D; // This points to a Texture2D
+	rtvDesc.Texture2D.MipSlice = 0;                             // Which mip are we rendering into?
+	rtvDesc.Format = texDesc.Format;                // Same format as texture
+	device->CreateRenderTargetView(rtTexture.Get(), &rtvDesc, rtv.GetAddressOf());
+
+	// Create the shader resource view using default options 
+	device->CreateShaderResourceView(
+		rtTexture.Get(),     // Texture resource itself
+		0,                   // Null description = default SRV options
+		srv.GetAddressOf()); // ComPtr<ID3D11ShaderResourceView>
+}
+
 
 void Renderer::DrawPointLights()
 {
-	const int lightCount = lights.size();
-
 	// Turn on these shaders
 	lightVS->SetShader();
 	lightPS->SetShader();
@@ -132,7 +319,7 @@ void Renderer::DrawPointLights()
 	lightVS->SetMatrix4x4("view", camera->GetView());
 	lightVS->SetMatrix4x4("projection", camera->GetProjection());
 
-	for (int i = 0; i < lightCount; i++)
+	for (int i = 0; i < activeLightCount; i++)
 	{
 		Light light = lights[i];
 
@@ -244,8 +431,6 @@ void Renderer::UpdateImGui(float deltaTime)
 
 void Renderer::CreateGui()
 {
-	int lightCount = lights.size();
-
 	ImGui::Begin("Debug");
 	if (ImGui::CollapsingHeader("Program Stats"))
 	{
@@ -258,7 +443,9 @@ void Renderer::CreateGui()
 	if (ImGui::CollapsingHeader("Lights"))
 	{
 		ImGui::Checkbox("Draw Point Lights", &drawDebugPointLights);
-		ImGui::SliderInt("Num Lights", &lightCount, 0, MAX_LIGHTS);
+		int lightCount = activeLightCount;
+		if (ImGui::SliderInt("Light Count", &lightCount, 0, MAX_LIGHTS))
+			SetActiveLightCount((unsigned int)lightCount);
 		//if using the slider to increase # of lights, make up the difference and add them to the vector, 
 		while (lightCount >= lights.size())
 		{
@@ -281,7 +468,80 @@ void Renderer::CreateGui()
 	{
 		ImGui::Image(sky->GetIBLBRDFLookUpTexture().Get(), ImVec2(128, 128));
 	}
+	if (ImGui::CollapsingHeader("MRTs"))
+	{
+		ImVec2 size = ImGui::GetItemRectSize();
+		float rtHeight = size.x * ((float)windowHeight / windowWidth);
+
+		for (int i = 0; i < RenderTargetType::RENDER_TARGET_TYPE_COUNT; i++)
+		{
+			ImageWithHover(renderTargetSRVs[((RenderTargetType)i)].Get(), ImVec2(size.x, rtHeight));
+		}
+
+		ImageWithHover(randomSRV.Get(), ImVec2(32, 32));
+	}
+	// SSAO Options
+	if (ImGui::CollapsingHeader("SSAO Options"))
+	{
+		ImVec2 size = ImGui::GetItemRectSize();
+		float rtHeight = size.x * ((float)windowHeight / windowWidth);
+
+		bool ssao = GetSSAOEnabled();
+		if (ImGui::Button(ssao ? "SSAO Enabled" : "SSAO Disabled"))
+			SetSSAOEnabled(!ssao);
+
+		ImGui::SameLine();
+		bool ssaoOnly = GetSSAOOutputOnly();
+		if (ImGui::Button("SSAO Output Only"))
+			SetSSAOOutputOnly(!ssaoOnly);
+
+		int ssaoSamples = GetSSAOSamples();
+		if (ImGui::SliderInt("SSAO Samples", &ssaoSamples, 1, 64))
+			SetSSAOSamples(ssaoSamples);
+
+		float ssaoRadius = GetSSAORadius();
+		if (ImGui::SliderFloat("SSAO Sample Radius", &ssaoRadius, 0.0f, 2.0f))
+			SetSSAORadius(ssaoRadius);
+
+	}
 	ImGui::End();
+}
+
+void Renderer::ImageWithHover(ImTextureID user_texture_id, const ImVec2& size)
+{
+	// Draw the image
+	ImGui::Image(user_texture_id, size);
+
+	// Check for hover
+	if (ImGui::IsItemHovered())
+	{
+		// Zoom amount and aspect of the image
+		float zoom = 0.03f;
+		float aspect = (float)size.x / size.y;
+
+		// Get the coords of the image
+		ImVec2 topLeft = ImGui::GetItemRectMin();
+		ImVec2 bottomRight = ImGui::GetItemRectMax();
+
+		// Get the mouse pos as a percent across the image, clamping near the edge
+		ImVec2 mousePosGlobal = ImGui::GetMousePos();
+		ImVec2 mousePos = ImVec2(mousePosGlobal.x - topLeft.x, mousePosGlobal.y - topLeft.y);
+		ImVec2 uvPercent = ImVec2(mousePos.x / size.x, mousePos.y / size.y);
+
+		uvPercent.x = max(uvPercent.x, zoom / 2);
+		uvPercent.x = min(uvPercent.x, 1 - zoom / 2);
+		uvPercent.y = max(uvPercent.y, zoom / 2 * aspect);
+		uvPercent.y = min(uvPercent.y, 1 - zoom / 2 * aspect);
+
+		// Figure out the uv coords for the zoomed image
+		ImVec2 uvTL = ImVec2(uvPercent.x - zoom / 2, uvPercent.y - zoom / 2 * aspect);
+		ImVec2 uvBR = ImVec2(uvPercent.x + zoom / 2, uvPercent.y + zoom / 2 * aspect);
+
+		// Draw a floating box with a zoomed view of the image
+		ImGui::BeginTooltip();
+		ImGui::Image(user_texture_id, ImVec2(256, 256), uvTL, uvBR);
+		ImGui::EndTooltip();
+	}
 }
 
 void Renderer::UIProgram()
@@ -387,3 +647,15 @@ void Renderer::UITransform(Transform& transform, int parentIndex)
 }
 
 void Renderer::UIMaterial() {}
+
+void Renderer::SetSSAOEnabled(bool enabled) { ssaoEnabled = enabled; }
+bool Renderer::GetSSAOEnabled() { return ssaoEnabled; }
+
+void Renderer::SetSSAORadius(float radius) { ssaoRadius = radius; }
+float Renderer::GetSSAORadius() { return ssaoRadius; }
+
+void Renderer::SetSSAOSamples(int samples) { ssaoSamples = max(0, min(samples, ARRAYSIZE(ssaoOffsets))); }
+int Renderer::GetSSAOSamples() { return ssaoSamples; }
+
+void Renderer::SetSSAOOutputOnly(bool ssaoOnly) { ssaoOutputOnly = ssaoOnly; }
+bool Renderer::GetSSAOOutputOnly() { return ssaoOutputOnly; }

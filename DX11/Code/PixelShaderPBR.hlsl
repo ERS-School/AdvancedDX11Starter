@@ -43,6 +43,13 @@ struct VertexToPixel
 	float3 worldPos			: POSITION; // The world position of this PIXEL
 };
 
+struct PS_Output
+{
+	float4 colorNoAmbient : SV_TARGET0;
+	float4 ambientColor : SV_TARGET1;
+	float4 normals : SV_TARGET2;
+	float depths : SV_TARGET3;
+};
 
 // Texture-related variables
 Texture2D Albedo			: register(t0);
@@ -60,14 +67,11 @@ SamplerState BasicSampler : register(s0);
 SamplerState ClampSampler : register(s1); // New!
 
 // Entry point for this pixel shader
-float4 main(VertexToPixel input) : SV_TARGET
+PS_Output main(VertexToPixel input) : SV_TARGET
 {
 	// Always re-normalize interpolated direction vectors
 	input.normal = normalize(input.normal);
 	input.tangent = normalize(input.tangent);
-
-	// Apply the uv adjustments
-	input.uv = input.uv * uvScale + uvOffset;
 
 	// Sample various textures
 	input.normal = NormalMapping(NormalMap, BasicSampler, input.uv, input.normal, input.tangent);
@@ -76,7 +80,7 @@ float4 main(VertexToPixel input) : SV_TARGET
 
 	// Gamma correct the texture back to linear space and apply the color tint
 	float4 surfaceColor = Albedo.Sample(BasicSampler, input.uv);
-	surfaceColor.rgb = pow(surfaceColor.rgb, 2.2) * colorTint;
+	surfaceColor.rgb = pow(surfaceColor.rgb, 2.2);// * Color.rgb;
 
 	// Specular color - Assuming albedo texture is actually holding specular color if metal == 1
 	// Note the use of lerp here - metal is generally 0 or 1, but might be in between
@@ -84,25 +88,25 @@ float4 main(VertexToPixel input) : SV_TARGET
 	float3 specColor = lerp(F0_NON_METAL.rrr, surfaceColor.rgb, metal);
 
 	// Total color for this pixel
-	float3 totalColor = float3(0,0,0);
+	float3 totalDirectLight = float3(0, 0, 0);
 
 	// Loop through all lights this frame
-	for(int i = 0; i < lightCount; i++)
+	for (int i = 0; i < lightCount; i++)
 	{
 		// Which kind of light?
 		switch (lights[i].Type)
 		{
-		case LIGHT_TYPE_DIRECTIONAL:
-			totalColor += DirLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
-			break;
+			case LIGHT_TYPE_DIRECTIONAL:
+				totalDirectLight += DirLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
+				break;
 
-		case LIGHT_TYPE_POINT:
-			totalColor += PointLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
-			break;
+			case LIGHT_TYPE_POINT:
+				totalDirectLight += PointLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
+				break;
 
-		case LIGHT_TYPE_SPOT:
-			totalColor += SpotLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
-			break;
+			case LIGHT_TYPE_SPOT:
+				totalDirectLight += SpotLightPBR(lights[i], input.normal, input.worldPos, cameraPosition, roughness, metal, surfaceColor.rgb, specColor);
+				break;
 		}
 	}
 
@@ -114,19 +118,19 @@ float4 main(VertexToPixel input) : SV_TARGET
 	// Indirect lighting
 	float3 indirectDiffuse = IndirectDiffuse(IrradianceIBLMap, BasicSampler, input.normal);
 	float3 indirectSpecular = IndirectSpecular(
-	SpecularIBLMap, SpecIBLTotalMipLevels,
-	BrdfLookUpMap, ClampSampler, // MUST use the clamp sampler here!
-	viewRefl, NdotV,
-	roughness, specColor);
+		SpecularIBLMap, SpecIBLTotalMipLevels,
+		BrdfLookUpMap, ClampSampler, // MUST use the clamp sampler here!
+		viewRefl, NdotV,
+		roughness, specColor);
 
 	// Balance indirect diff/spec
-	float3 balancedDiff = DiffuseEnergyConserve(indirectDiffuse, indirectSpecular, metal);
-	float3 fullIndirect = indirectSpecular + balancedDiff * surfaceColor.rgb;
+	float3 balancedIndirectDiff = DiffuseEnergyConserve(indirectDiffuse, specColor, metal) * surfaceColor.rgb;
 
-	// Add the indirect to the direct
-	totalColor += fullIndirect;
-
-
-	// Gamma correction
-	return float4(pow(totalColor, 1.0f / 2.2f), 1);
+	// Multiple render target output
+	PS_Output output;
+	output.colorNoAmbient = float4(totalDirectLight + indirectSpecular, 1); // No gamma correction yet!
+	output.ambientColor = float4(balancedIndirectDiff, 1); // Gamma correction
+	output.normals = float4(input.normal * 0.5f + 0.5f, 1);
+	output.depths = input.screenPosition.z;
+	return output;
 }
